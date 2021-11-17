@@ -589,4 +589,28 @@ public class SimpleIntegrationTest extends MQTTTestBase {
         Assert.assertEquals(new String(receive2.getPayload()), "offline");
         Assert.assertEquals(receive2.getTopic(), "will-message-topic");
     }
+
+    @Test
+    public void testRetainMessage() throws Exception {
+        MQTT mqttConsumer = createMQTTClient();
+        String topicName1 = "topic-a";
+        Topic[] topic1 = {new Topic(topicName1, QoS.AT_LEAST_ONCE)};
+
+        MQTT mqttProducer = createMQTTClient();
+
+        BlockingConnection producer = mqttProducer.blockingConnection();
+        producer.connect();
+        String msg1 = "hello Retained Message";
+        producer.publish(topicName1, msg1.getBytes(StandardCharsets.UTF_8), QoS.AT_LEAST_ONCE, true);
+        producer.disconnect();
+
+        BlockingConnection consumer = mqttConsumer.blockingConnection();
+        consumer.connect();
+        consumer.subscribe(topic1);
+        Message receive1 = consumer.receive();
+
+        Assert.assertEquals(new String(receive1.getPayload()), msg1);
+        Assert.assertEquals(receive1.getTopic(), topicName1);
+
+    }
 }

@@ -140,4 +140,9 @@ public class MqttMessageUtils {
                 .topicName(willMessage.getTopic()).payload(willMessage.getPayload())
                 .qos(willMessage.getQos()).retained(willMessage.isRetained()).build();
     }
+
+    public static MqttPublishMessage createPublishMessage(String topic, byte[] payloadByte, MqttQoS qos, boolean retain){
+        final ByteBuf payload = Unpooled.copiedBuffer(payloadByte);
+        return MessageBuilder.publish().topicName(topic).payload(payload).qos(qos).retained(retain).build();
+    }
 }

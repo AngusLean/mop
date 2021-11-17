@@ -85,6 +85,13 @@ public class MQTTCommonConfiguration extends ServiceConfiguration {
     @FieldContext(
             category = CATEGORY_MQTT,
             required = true,
+            doc = "Default Pulsar Retain message namespace that the MQTT server used."
+    )
+    private String defaultRetainNamespace = "defaultRetain";
+
+    @FieldContext(
+            category = CATEGORY_MQTT,
+            required = true,
             doc = "Default Pulsar namespace that the MQTT server used."
     )
     private String defaultNamespace = "default";

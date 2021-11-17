@@ -18,6 +18,7 @@ import static io.streamnative.pulsar.handlers.mqtt.utils.MqttMessageUtils.create
 import static io.streamnative.pulsar.handlers.mqtt.utils.MqttMessageUtils.createWillMessage;
 import static io.streamnative.pulsar.handlers.mqtt.utils.MqttMessageUtils.topicSubscriptions;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttConnAckMessage;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
@@ -48,6 +49,7 @@ import io.streamnative.pulsar.handlers.mqtt.OutstandingPacketContainer;
 import io.streamnative.pulsar.handlers.mqtt.PacketIdGenerator;
 import io.streamnative.pulsar.handlers.mqtt.ProtocolMethodProcessor;
 import io.streamnative.pulsar.handlers.mqtt.QosPublishHandlers;
+import io.streamnative.pulsar.handlers.mqtt.RetainMsgHandler;
 import io.streamnative.pulsar.handlers.mqtt.utils.MqttMessageUtils;
 import io.streamnative.pulsar.handlers.mqtt.utils.NettyUtils;
 import io.streamnative.pulsar.handlers.mqtt.utils.PulsarTopicUtils;
@@ -60,7 +62,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bookkeeper.common.concurrent.FutureUtils;
 import org.apache.bookkeeper.mledger.impl.PositionImpl;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -90,6 +94,7 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
     private final MQTTMetricsCollector metricsCollector;
     private final MQTTConnectionManager connectionManager;
     private final MQTTSubscriptionManager subscriptionManager;
+    private final RetainMsgHandler retainMsgHandler;
 
     public DefaultProtocolMethodProcessorImpl (MQTTService mqttService, ChannelHandlerContext ctx) {
         this.pulsarService = mqttService.getPulsarService();
@@ -103,6 +108,8 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
         this.connectionManager = mqttService.getConnectionManager();
         this.subscriptionManager = mqttService.getSubscriptionManager();
         this.serverCnx = new MQTTServerCnx(pulsarService, ctx);
+        this.retainMsgHandler = new DefaultRetainMessageHandler(mqttService.getPulsarService(),
+                mqttService.getServerConfiguration());
     }
 
     @Override
@@ -225,6 +232,7 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
     private void doPublish(Channel channel, MqttPublishMessage msg) {
         final MqttQoS qos = msg.fixedHeader().qosLevel();
         metricsCollector.addSend(msg.payload().readableBytes());
+        doRetain(channel, msg).thenAccept(x -> {
         switch (qos) {
             case AT_MOST_ONCE:
                 this.qosPublishHandlers.qos0().publish(channel, msg);
@@ -239,7 +247,7 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
                 log.error("Unknown QoS-Type:{}", qos);
                 channel.close();
                 break;
-        }
+        }});
     }
 
     @Override
@@ -403,6 +411,9 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
                 log.debug("Sending SUB-ACK message {} to {}", ackMessage, clientID);
             }
             channel.writeAndFlush(ackMessage);
+            ChannelFuture ackFuture = channel.writeAndFlush(ackMessage);
+            List<String> mqttTopicList = subTopics.stream().map(row -> row.topicName()).collect(Collectors.toList());
+            ackFuture.addListener(new SendRetainedMsgListener(mqttTopicList, clientID , retainMsgHandler));
             Map<Topic, Pair<Subscription, Consumer>> existedSubscriptions = NettyUtils.getTopicSubscriptions(channel);
             if (existedSubscriptions != null) {
                 topicSubscriptions.putAll(existedSubscriptions);
@@ -474,4 +485,29 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
             return null;
         });
     }
+
+    private CompletableFuture<Void> doRetain(Channel channel, MqttPublishMessage msg){
+        if(!msg.fixedHeader().isRetain()){
+            return FutureUtils.Void();
+        }
+        String topicName = msg.variableHeader().topicName();
+        CompletableFuture<Void> cleanMsgFuture = null;
+
+        if(msg.fixedHeader().qosLevel().equals(MqttQoS.AT_MOST_ONCE) || msg.payload().capacity() == 0){
+            cleanMsgFuture = this.retainMsgHandler.removeOrCreate(topicName);
+            if(msg.payload().capacity() == 0){
+                return cleanMsgFuture;
+            }
+        }
+
+        if(cleanMsgFuture != null){
+            //we must first delete all message in this topic, then add new message
+            return cleanMsgFuture.thenCompose(__->{
+                //it must have values
+                return this.retainMsgHandler.put(topicName, msg).<Void>thenApply(c->null);
+            });
+        }
+        return this.retainMsgHandler.put(topicName, msg).<Void>thenApply(c->null);
+    }
+
 }
