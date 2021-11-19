@@ -22,7 +22,7 @@ public interface RetainMsgHandler {
      * @param topic should be removed
      * @return
      */
-    CompletableFuture<Void> removeOrCreate(String topicName);
+    CompletableFuture<Void> remove(String topicName);
 
     /**
      * get latest retained message

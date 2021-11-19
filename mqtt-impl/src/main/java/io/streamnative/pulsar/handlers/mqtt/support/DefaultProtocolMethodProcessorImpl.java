@@ -494,7 +494,7 @@ public class DefaultProtocolMethodProcessorImpl implements ProtocolMethodProcess
         CompletableFuture<Void> cleanMsgFuture = null;
 
         if(msg.fixedHeader().qosLevel().equals(MqttQoS.AT_MOST_ONCE) || msg.payload().capacity() == 0){
-            cleanMsgFuture = this.retainMsgHandler.removeOrCreate(topicName);
+            cleanMsgFuture = this.retainMsgHandler.remove(topicName);
             if(msg.payload().capacity() == 0){
                 return cleanMsgFuture;
             }

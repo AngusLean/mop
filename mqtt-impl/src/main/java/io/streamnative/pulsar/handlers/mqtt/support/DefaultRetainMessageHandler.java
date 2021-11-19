@@ -82,7 +82,7 @@ public class DefaultRetainMessageHandler implements RetainMsgHandler {
     }
 
     @Override
-    public CompletableFuture<Void> removeOrCreate(String topicName) {
+    public CompletableFuture<Void> remove(String topicName) {
         CompletableFuture<Optional<Topic>> retainTopicFuture = getRetainTopic(topicName);
         return retainTopicFuture.thenAccept(tpOp -> {
             if (!tpOp.isPresent()) {
@@ -96,27 +96,6 @@ public class DefaultRetainMessageHandler implements RetainMsgHandler {
                 throw new MQTTServerException(e);
             }
         });
-    }
-
-    private CompletableFuture<Optional<Topic>> getRetainTopic(String topicName) {
-        return PulsarTopicUtils.getTopicReference(pulsarService, topicName,
-                configuration.getDefaultTenant(), configuration.getDefaultRetainNamespace(), false,
-                configuration.getDefaultTopicDomain());
-    }
-
-    private CompletableFuture<Optional<Topic>> createAndGetTopicRef(String topicName) {
-        String pulsarTopicName = PulsarTopicUtils.getPulsarTopicName(topicName, configuration.getDefaultTenant(),
-                configuration.getDefaultRetainNamespace(), false,
-                TopicDomain.persistent);
-
-        try {
-            pulsarService.getAdminClient().topics().createPartitionedTopic(pulsarTopicName, 4);
-        } catch (PulsarAdminException | PulsarServerException e) {
-            throw new MQTTServerException(e);
-        }
-        return PulsarTopicUtils.getTopicReference(pulsarService, topicName,
-                configuration.getDefaultTenant(), configuration.getDefaultRetainNamespace(), false,
-                configuration.getDefaultTopicDomain());
     }
 
     @Override
@@ -147,4 +126,27 @@ public class DefaultRetainMessageHandler implements RetainMsgHandler {
         }
         return result;
     }
+
+
+    private CompletableFuture<Optional<Topic>> getRetainTopic(String topicName) {
+        return PulsarTopicUtils.getTopicReference(pulsarService, topicName,
+                configuration.getDefaultTenant(), configuration.getDefaultRetainNamespace(), false,
+                configuration.getDefaultTopicDomain());
+    }
+
+    private CompletableFuture<Optional<Topic>> createAndGetTopicRef(String topicName) {
+        String pulsarTopicName = PulsarTopicUtils.getPulsarTopicName(topicName, configuration.getDefaultTenant(),
+                configuration.getDefaultRetainNamespace(), false,
+                TopicDomain.persistent);
+
+        try {
+            pulsarService.getAdminClient().topics().createPartitionedTopic(pulsarTopicName, 4);
+        } catch (PulsarAdminException | PulsarServerException e) {
+            throw new MQTTServerException(e);
+        }
+        return PulsarTopicUtils.getTopicReference(pulsarService, topicName,
+                configuration.getDefaultTenant(), configuration.getDefaultRetainNamespace(), false,
+                configuration.getDefaultTopicDomain());
+    }
+
 }
